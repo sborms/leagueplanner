@@ -18,6 +18,10 @@ from .utils import drop_nearby_points_from_array
 # No away availabilities on home days
 # Some teams have home games on same day
 
+# TODO: Add example how to optimize for a pure 2RR setup (e.g. 10 rounds, 6 teams, 3 games per round)
+# TODO: Allow more input flexibility (e.g. providing raw array input instead of an Excel)
+# TODO: Allow starting from an existing calendar + parameter to fix certain/all dates (e.g. when adding a team to the league)
+
 
 class Perturbation:
     """Helper class to modify current schedule to avoid local optima."""
