@@ -6,9 +6,9 @@ push:
 	git push
 
 brush:
-	ruff check --select I --fix .
-	ruff format .
-	ruff check .
+	uv run ruff check --select I --fix .
+	uv run ruff format .
+	uv run ruff check .
 
 install:
 	pip install uv

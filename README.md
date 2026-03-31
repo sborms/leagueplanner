@@ -123,12 +123,12 @@ How long does the planner take? This table sheds some baseline light for a leagu
 
 | Iterations       | Time¹     | Time²     |
 |------------------|-----------|-----------|
-| 10               | <1s       | <50ms     |
-| 100              | <1s       | <50ms     |
-| 1k               | <1s       | <50ms     |
-| 10k              | ~3s       | <400ms    |
-| 100k             | ~25s      | <4s       |
-| 1M               | ~230s     | <35s      |
+| 10               | ~1s       | ~50ms     |
+| 100              | ~1s       | ~50ms     |
+| 1k               | ~1s       | ~50ms     |
+| 10k              | ~3s       | ~400ms    |
+| 100k             | ~25s      | ~4s       |
+| 1M               | ~230s     | ~35s      |
 
 ¹*Run on a few years old Windows 10 Pro machine with Intel i7–7700HQ CPU and 32GB RAM.*
 
