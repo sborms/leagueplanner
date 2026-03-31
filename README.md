@@ -121,16 +121,18 @@ The used meta-algorithm heavily relies on the Hungarian algorithm to recurrently
 
 How long does the planner take? This table sheds some baseline light for a league of **13 teams** (156 games):
 
-| Iterations       | Time       |
-|------------------|----------- |
-| 10               | <1s        |
-| 100              | <1s        |
-| 1k               | <1s        |
-| 10k              | ~3s        |
-| 100k             | ~25s       |
-| 1M               | ~230s      |
+| Iterations       | Time¹     | Time²     |
+|------------------|-----------|-----------|
+| 10               | <1s       | <50ms     |
+| 100              | <1s       | <50ms     |
+| 1k               | <1s       | <50ms     |
+| 10k              | ~3s       | <400ms    |
+| 100k             | ~25s      | <4s       |
+| 1M               | ~230s     | <35s      |
 
-*Run on a few years old Windows 10 Pro machine with Intel i7–7700HQ CPU and 32GB RAM.*
+¹*Run on a few years old Windows 10 Pro machine with Intel i7–7700HQ CPU and 32GB RAM.*
+
+²*Run on a MacBook Air machine with M5 chip and 24GB RAM.*
 
 A few 100(0)s iterations are typically sufficient to arrive at a good schedule.
 

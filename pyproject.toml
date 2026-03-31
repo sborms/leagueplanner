@@ -5,7 +5,7 @@ description = "Generate optimal schedules for your time-relaxed double round-rob
 authors = [ { name = "Samuel Borms", email = "sam@desirdata.com" }]
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.13"
 keywords = ["scheduling", "sports", "league", "round-robin", "tabu-search"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -13,6 +13,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
@@ -22,7 +23,7 @@ dependencies = [
     "pandas>=2.3.0",
     "typer>=0.15.2",
     "XlsxWriter>=3.2.0",
-    "fasttps>=1.0.0",
+    "fasttps>=1.0.1",
     "tool>=0.8.0",
     "ty>=0.0.19",
 ]

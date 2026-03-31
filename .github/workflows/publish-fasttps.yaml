@@ -12,12 +12,12 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
-      PYO3_PYTHON: python3.13
+      PYO3_PYTHON: python3.14
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.13
+          python-version: 3.14
           enable-cache: false
       - uses: dtolnay/rust-toolchain@stable
       - run: uv sync --frozen
@@ -69,7 +69,7 @@ jobs:
           path: dist/
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.13
+          python-version: 3.14
           enable-cache: false
       - run: ls -R
       - run: uv publish --trusted-publishing always dist/*manylinux* dist/*macosx* dist/*win* dist/*.tar.gz

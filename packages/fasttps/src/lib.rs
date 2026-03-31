@@ -492,7 +492,7 @@ impl FastTPS {
             &self.penalties_vec,
             self.max_penalty_key,
         );
-        Ok(PyArray2::from_owned_array_bound(py, am).unbind())
+        Ok(PyArray2::from_owned_array(py, am).unbind())
     }
 }
 
