@@ -51,7 +51,7 @@ header_col_1.markdown("#### Easily Schedule Double Round-Robin (2RR) Leagues")
 go = header_col_2.button("Schedule")
 
 row1 = st.container()
-main_col1, main_col2, main_col3 = row1.columns([0.425, 0.35, 0.225])
+main_col1, main_col2, main_col3 = row1.columns([0.375, 0.375, 0.250])
 
 # variables that require to be set upfront
 sheet_names = []
