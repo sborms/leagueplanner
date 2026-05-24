@@ -4,7 +4,6 @@
 [![Python](https://img.shields.io/pypi/pyversions/leagueplanner)](https://pypi.org/project/leagueplanner)
 [![CI](https://github.com/sborms/leagueplanner/actions/workflows/ci.yaml/badge.svg)](https://github.com/sborms/leagueplanner/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://leagueplanner.streamlit.app)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/leagueplanner)
 
 If you are looking to schedule a sports league with at least the following constraints...
