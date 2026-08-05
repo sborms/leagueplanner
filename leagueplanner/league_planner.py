@@ -20,8 +20,9 @@ from .utils import drop_nearby_points_from_array
 
 # TODO: Add example how to optimize for a pure 2RR setup (e.g. 10 rounds, 6 teams, 3 games per round)
 # TODO: Allow more input flexibility (e.g. providing raw array input instead of an Excel)
-# TODO: Allow starting from an existing calendar + parameter to fix certain/all dates (e.g. when adding a team to the league)
-# TODO: Allow changing between type of schedule (1, 2, or 4 duels per matchup)
+# TODO: Allow starting from an existing calendar + add parameter to fix certain dates (e.g. when adding a team to the league) ~ completing partially filled in schedule
+# TODO: Allow changing between type of schedule (1, 2, 3, 4, ... duels per matchup for any number of teams >= 2)
+# TODO: Auto-tweak input if schedule not fully completed (e.g. decrease date window for problematic teams)
 
 
 class Perturbation:
