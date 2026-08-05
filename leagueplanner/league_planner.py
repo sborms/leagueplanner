@@ -18,6 +18,7 @@ from .utils import drop_nearby_points_from_array
 # No away availabilities on home days
 # Some teams have home games on same day
 
+# TODO: Display more flexible Python versions on PyPI (>= 3.13)
 # TODO: Add example how to optimize for a pure 2RR setup (e.g. 10 rounds, 6 teams, 3 games per round)
 # TODO: Allow more input flexibility (e.g. providing raw array input instead of an Excel)
 # TODO: Allow starting from an existing calendar + add parameter to fix certain dates (e.g. when adding a team to the league) ~ completing partially filled in schedule

@@ -16,7 +16,6 @@ If you are looking to schedule a sports league with at least the following const
 
 ... then the `leagueplanner` Python package will help you!
 
-> [!NOTE]
 > Plan/schedule/calendar is used interchangeably. The output of the planner is a calendar (or schedule) of games.
 
 ## Installation
