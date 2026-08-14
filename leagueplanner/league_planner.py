@@ -115,6 +115,7 @@ class LeaguePlanner:
         ]
         self._rest_days_buf = np.empty((self.n_teams, 2 * self.n_teams))
 
+        # values populated during the layered approach
         self._calendar = None
         self._home_targets = None
         self._layered_used_home_slots = None
@@ -213,6 +214,7 @@ class LeaguePlanner:
             layered_result = layered_planner.run(progress_bar=progress_bar)
 
             self.list_full_costs = layered_result.list_full_costs
+
             self._calendar = layered_result.calendar
             self._home_targets = layered_result.home_targets
             self._layered_used_home_slots = layered_result.used_home_slots

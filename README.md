@@ -9,7 +9,7 @@
 If you are looking to schedule a sports league with at least the following constraints...
 
 - Everyone plays 1 home game and 1 away game against each other (double round-robin)
-    - It is also possible to enforce 3x, 4x, 5x, ... matchups while keeping home/away as balanced as possible (cf. the `games_per_opponent` parameter)
+    - It is also possible to enforce 3x, 4x, 5x, ... matchups while keeping home/away as balanced as possible (adjust the `games_per_opponent` parameter as needed)
 - Home games are played on reserved dates
 - Away games are not played on unavailable dates
 - No team plays 2 games on the same day
@@ -17,7 +17,7 @@ If you are looking to schedule a sports league with at least the following const
 
 ... then the `leagueplanner` Python package will help you!
 
-> Plan/schedule/calendar is used interchangeably. The output of the planner is a calendar (or schedule) of games.
+> Plan/schedule/calendar is used interchangeably. The planner outputs a calendar (= schedule) of games.
 
 ## Installation
 
@@ -110,6 +110,8 @@ It has a more limited set of parameters (namely `m`, `r_max`, `n_iterations`, an
 Additionally, the output file includes for every league and by team the distribution of the **number of *adjusted* rest days between games** (meaning that unavailable dates by that team are not considered in the count of the rest days), as well as the **unused home time slots per team**. This facilitates post-analysis of the quality of the generated calendar.
 
 If the app sleeps due to inactivity 😴, just wake it back up. You can run the app locally with `make web`.
+
+> Features and output might be coming from an experimental branch.
 
 ## Algorithm
 

@@ -240,16 +240,16 @@ with output_col2:
         df_stats = df_stats.astype(int)
 
         # remove cost of unfeasible schedules
-        df_stats["cost"] = df_stats["cost"] - (
-            df_stats["missing_home_slots"] * DEFAULTS.p
-        )
+        # df_stats["cost"] = df_stats["cost"] - (
+        #     df_stats["missing_home_slots"] * DEFAULTS.p
+        # )
 
         # show summary table
         st.markdown("**Summary**")
         st.markdown(
             f"The last two columns show how often the **actual number of rest days** exceeds {MAX_ALLOWED_REST_DAYS}, including (`_all`) or excluding (`_rel`) teams without available home slots. "
-            "The algorithm itself **does not penalize** excessive rest days for those teams, hence the latter column is most _relevant_. The fact that the table displays the actual rest days and not the adjusted "
-            "ones accounting for unavailability, makes them 'worst-case' indicators."
+            "The algorithm itself **does not penalize** excessive rest days for those teams, hence the latter column is most _relevant_. As the table displays the actual rest days and not the adjusted "
+            "ones accounting for unavailability, they are 'worst-case' indicators."
         )
         st.table(df_stats)
 

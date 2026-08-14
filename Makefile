@@ -40,4 +40,3 @@ experiment:
 		--seed 505 \
 		--n-iterations 10000 \
 		--games-per-opponent 2
-
