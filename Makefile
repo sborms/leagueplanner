@@ -24,7 +24,7 @@ web:
 
 example:
 	rm -rf example/output
-	uv run 2rr --input-file "example/input.xlsx" --output-folder "example/output" --seed 321 --n-iterations 5000
+	uv run 2rr --input-file "example/input.xlsx" --output-folder "example/output" --seed 321 --n-iterations 5000 --games-per-opponent 2
 
 time:
 	uv run timings.py
@@ -35,7 +35,9 @@ profile:
 	
 experiment:
 	uv run 2rr \
-		--input-file "experiments/Moeilijke reeksen.xlsx" \
+		--input-file "experiments/real_life_test_input_2_matchups.xlsx" \
 		--output-folder "experiments/difficile" \
 		--seed 505 \
-		--n-iterations 10000
+		--n-iterations 10000 \
+		--games-per-opponent 2
+

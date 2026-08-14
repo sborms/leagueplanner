@@ -9,7 +9,6 @@ DEFAULT_PENALTIES.update({k + 1: 5 for k in range(DEFAULT_R_MAX - 2, 7)})  # <1 
 DEFAULT_PENALTIES.update({k + 1: 0 for k in range(7, 14)})  # <2 weeks
 DEFAULT_PENALTIES.update({k + 1: 3 for k in range(14, 21)})  # 2-3 weeks
 DEFAULT_PENALTIES.update({k + 1: 10 for k in range(21, 42)})  # 3-6 weeks
-# DEFAULT_PENALTIES.update({k + 1: DEFAULT_COST + 10 for k in range(42, 364)})  # >6 weeks
 
 
 @dataclass
@@ -32,6 +31,7 @@ class PlannerParams:
     :param alpha: Probability of picking perturbation operator 1.
     :param beta: Probability of removing a game in operator 1.
     :param cost_excessive_rest_days: Cost for excessive rest days. [not in original paper]
+    :param games_per_opponent: Number of games between each pair of teams. [not in original paper]
     """
 
     tabu_length: int = 4
@@ -44,3 +44,8 @@ class PlannerParams:
     alpha: float = 0.5
     beta: float = 0.01
     cost_excessive_rest_days: float = DEFAULT_COST_REST_DAYS
+    games_per_opponent: int = 2
+
+    def __post_init__(self) -> None:
+        if self.games_per_opponent < 1:
+            raise ValueError("Parameter 'games_per_opponent' must be at least 1")

@@ -1,6 +1,7 @@
 # Other
 .ruff_cache/
 experiments/
+.DS_Store
 profile.out
 
 # Byte-compiled / optimized / DLL files

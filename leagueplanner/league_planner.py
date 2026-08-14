@@ -10,6 +10,7 @@ import streamlit as st
 from .constants import LARGE_NBR, MAX_ALLOWED_REST_DAYS, OUTPUT_COLS
 from .input_parser import InputParser
 from .params import PlannerParams
+from .perturbation import Perturbation
 from .transportation_problem_solver import TransportationProblemSolver as TPS
 from .utils import drop_nearby_points_from_array
 
@@ -21,54 +22,9 @@ from .utils import drop_nearby_points_from_array
 # TODO: Display more flexible Python versions on PyPI (>= 3.13)
 # TODO: Add example how to optimize for a pure 2RR setup (e.g. 10 rounds, 6 teams, 3 games per round)
 # TODO: Allow more input flexibility (e.g. providing raw array input instead of an Excel)
-# TODO: Allow starting from an existing calendar + add parameter to fix certain dates (e.g. when adding a team to the league) ~ completing partially filled in schedule
-# TODO: Allow changing between type of schedule (1, 2, 3, 4, ... duels per matchup for any number of teams >= 2)
+# TODO: Allow starting from an existing calendar + add parameter to fix certain dates
+#   (e.g. when adding a team to the league) ~ completing partially filled in schedule
 # TODO: Auto-tweak input if schedule not fully completed (e.g. decrease date window for problematic teams)
-
-
-class Perturbation:
-    """Helper class to modify current schedule to avoid local optima."""
-
-    def __init__(self, alpha: float = 0.50, beta: float = 0.01) -> None:
-        """
-        Initializes a new instance of the Perturbation class.
-
-        See PlannerParams for parameter details.
-        """
-        self.alpha = alpha
-        self.beta = beta
-
-    def perturbate(self, X: np.ndarray) -> None:
-        """Perturbates the given matrix in-place with the first or second operator."""
-        if np.random.rand() < self.alpha:
-            self.perturbate1(X)
-        else:
-            self.perturbate2(X)
-
-    def perturbate1(self, X: np.ndarray) -> None:
-        """
-        First perturbation operator
-        --> Randomly determines for each game in the schedule independently if the
-            game is to be removed with probability self.beta.
-
-        Picked with probability self.alpha.
-        """
-        X[np.random.rand(*X.shape) < self.beta] = np.nan
-        np.fill_diagonal(X, LARGE_NBR)
-
-    def perturbate2(self, X: np.ndarray) -> None:
-        """
-        Second perturbation operator
-        --> Chooses a team with a uniform probability, removes all the games of this
-            team, and solves the transportation problem for this team.
-
-        Picked with probability 1 - self.alpha.
-        """
-        idx = np.random.choice(range(X.shape[0]))
-
-        X[idx, :] = np.nan
-        X[:, idx] = np.nan
-        X[idx, idx] = LARGE_NBR
 
 
 class LeaguePlanner:
@@ -92,6 +48,8 @@ class LeaguePlanner:
     instance, if slot t is a Monday, then slot t + 3 is a Thursday, with in total 4 slots
     considered. The number of rest days is 2 in this case (Tuesday and Wednesday).
     """
+
+    output_cols = OUTPUT_COLS
 
     def __init__(
         self,
@@ -117,6 +75,8 @@ class LeaguePlanner:
         self.perturbation_length = params.perturbation_length
         self.n_iterations = params.n_iterations
         self.cost_excessive_rest_days = params.cost_excessive_rest_days
+        self.games_per_opponent = params.games_per_opponent
+        self.params = params
         self.logger = logger
 
         # initialize target matrix with teams & slots
@@ -140,9 +100,6 @@ class LeaguePlanner:
         # initialize perturbation object
         self.perturbation = Perturbation(alpha=params.alpha, beta=params.beta)
 
-        # initialize output columns
-        self.output_cols = OUTPUT_COLS
-
         # track top X matrices with lowest cost as a list of dicts {"cost": float, "X": np.ndarray}
         self.top_X = []
         self._top_X_costs = []  # parallel list for fast bisect insertion
@@ -158,8 +115,16 @@ class LeaguePlanner:
         ]
         self._rest_days_buf = np.empty((self.n_teams, 2 * self.n_teams))
 
+        self._calendar = None
+        self._home_targets = None
+        self._layered_used_home_slots = None
+
     def construction_phase(self) -> None:
         """Generates initial (possibly incomplete) schedule and assigns it to self.X."""
+        if self.games_per_opponent != 2:
+            self.list_full_costs = []
+            return
+
         X = self.X
         n_teams = self.n_teams
 
@@ -237,6 +202,26 @@ class LeaguePlanner:
 
         :param progress_bar: A progress bar object, e.g., streamlit.progress(0.0).
         """
+        if self.games_per_opponent != 2:
+            from .layered_planner import LayeredPlanner  # noqa: I001
+
+            layered_planner = LayeredPlanner(
+                input=self.input,
+                params=self.params,
+                logger=self.logger,
+            )
+            layered_result = layered_planner.run(progress_bar=progress_bar)
+
+            self.list_full_costs = layered_result.list_full_costs
+            self._calendar = layered_result.calendar
+            self._home_targets = layered_result.home_targets
+            self._layered_used_home_slots = layered_result.used_home_slots
+
+            self.top_X = []
+            self._top_X_costs = []
+
+            return
+
         X = self.X.copy()  # get current schedule
 
         list_home_costs = self.list_home_costs.copy()
@@ -250,7 +235,6 @@ class LeaguePlanner:
         it = 0
         while it < self.n_iterations and self.list_full_costs[-1] > 0:
             it += 1
-            # self.logger.info(f"Iteration {it}")
             if progress_bar is not None and it % 10 == 0:
                 progress_bar.progress(it / self.n_iterations)
 
@@ -278,7 +262,6 @@ class LeaguePlanner:
             team_idx = np.random.choice(list_nontabu)
             list_tabu.append(team_idx)
             list_nontabu.remove(team_idx)
-            # self.logger.info(f"Picked team: {self.input.sets['teams'][team_idx]} ({team_idx})")
 
             # reschedule home games of picked team
             X[team_idx, :] = np.nan
@@ -300,10 +283,11 @@ class LeaguePlanner:
             self._update_top_X(full_cost, X)
 
             # check quality
-            # self.logger.info(f"Iteration {it:>5}  ->  Cost = {full_cost:}")
             if full_cost < full_cost_min:  # new best
                 self.logger.info(
-                    f"!!! New best at iteration {it:>5} -> {full_cost:>9.1f} < {full_cost_min:<9.1f} | Rest days = {n_excessive_rest_days}"
+                    f"!!! New best at iteration {it:>6} -> "
+                    f"{full_cost:>9.1f} < {full_cost_min:<9.1f} | "
+                    f"Excessive rest days = {n_excessive_rest_days}"
                 )
                 full_cost_min = full_cost
                 self.X = X.copy()  # update to new optimal schedule
@@ -314,6 +298,11 @@ class LeaguePlanner:
 
     def create_calendar(self, X: np.ndarray = None) -> pd.DataFrame:
         """Creates a calendar DataFrame from the optimal schedule."""
+        if self.games_per_opponent != 2:
+            if self._calendar is None:
+                return pd.DataFrame(columns=self.output_cols)
+            return self._calendar.copy()
+
         X = X if X is not None else self.X
 
         core = self.input.core
@@ -383,15 +372,19 @@ class LeaguePlanner:
         d_val["unscheduled"] = sum(df[self.output_cols[0]].isna())
 
         if cost is None:
-            cost = min(self.list_full_costs)
+            cost = min(self.list_full_costs) if self.list_full_costs else 0
         d_val["cost"] = cost
 
         # overview of total number of home slots less than needed (per-team basis)
-        n_req_home_games = len(teams) - 1
+        if self.games_per_opponent == 2:
+            d_req_home_games = {team_idx: len(teams) - 1 for team_idx in teams}
+        else:
+            d_req_home_games = self._home_targets
+
         n_home_slots_short = sum(
             [
-                max(n_req_home_games - len(v), 0)
-                for _, v in self.sets_home_feasible.items()
+                max(d_req_home_games[team_idx] - len(v), 0)
+                for team_idx, v in self.sets_home_feasible.items()
             ]
         )
         d_val["missing_home_slots"] = n_home_slots_short
@@ -518,6 +511,40 @@ class LeaguePlanner:
 
     def make_df_unused_home_slots(self) -> pd.DataFrame:
         """Forms DataFrame with teams and their unused home slots."""
+        if self.games_per_opponent != 2:
+            col_date = self.output_cols[0]
+            col_team = "Team"
+            used_slots = self._layered_used_home_slots or {
+                team_idx: set() for team_idx in self.input.sets["teams"]
+            }
+
+            list_unused = []
+            for team_idx, team_name in self.input.sets["teams"].items():
+                unused_home_slots = sorted(
+                    [
+                        self.input.sets["slots"][s]
+                        for s in set(self.sets_home[team_idx]).difference(
+                            used_slots[team_idx]
+                        )
+                    ]
+                )
+                df_unused = pd.DataFrame({"unused": unused_home_slots})
+                if len(df_unused) == 0:
+                    continue
+                df_unused[col_team] = team_name
+                list_unused.append(df_unused)
+
+            if not list_unused:
+                return pd.DataFrame(columns=[col_date])
+
+            df_unused_all = pd.concat(list_unused)[[col_team, "unused"]].set_index(
+                col_team
+            )
+            df_unused_all = df_unused_all.rename(columns={"unused": col_date})
+            df_unused_all = df_unused_all.sort_values([col_team, self.output_cols[0]])
+            df_unused_all[col_date] = df_unused_all[col_date].dt.strftime("%d/%m/%Y")
+            return df_unused_all
+
         col_date = self.output_cols[0]
         col_team = "Team"
 

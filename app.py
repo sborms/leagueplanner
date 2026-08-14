@@ -47,7 +47,7 @@ st.markdown("## 📅 League Planner")
 row0 = st.container()
 header_col_1, header_col_2 = row0.columns([0.925, 0.075])
 
-header_col_1.markdown("#### Easily Schedule Double Round-Robin (2RR) Leagues")
+header_col_1.markdown("#### Easily Schedule Flexible Round-Robin Leagues")
 go = header_col_2.button("Schedule")
 
 row1 = st.container()
@@ -93,6 +93,8 @@ with main_col2:
     main_col2_sub_col1, main_col2_sub_col2, main_col2_sub_col3 = main_col2.columns(
         [1, 1, 1]
     )
+
+    # first row
     m = main_col2_sub_col1.number_input(
         "**Rest days pairs** (`m - 1`)",
         min_value=0,  # m = 1
@@ -108,19 +110,24 @@ with main_col2:
     n_iterations = main_col2_sub_col3.number_input(
         "**Maximum iterations**",
         min_value=10,
-        max_value=500000,
-        value=DEFAULTS.n_iterations,
+        max_value=1000000,
+        value=50000,  # DEFAULTS.n_iterations
     )
 
-    main_col2_sub_col3, main_col2_sub_col4 = main_col2.columns([1, 1])
-    unscheduled_date = main_col2_sub_col3.text_input(
+    # second row
+    unscheduled_date = main_col2_sub_col1.text_input(
         "**Unscheduled date**",
-        value="31/07/2026",
+        value="31/07/2027",
     )
-
-    unscheduled_hour = main_col2_sub_col4.text_input(
+    unscheduled_hour = main_col2_sub_col2.text_input(
         "**Unscheduled hour**",
         value="00u",
+    )
+    games_per_opponent = main_col2_sub_col3.number_input(
+        "**Games vs. opponent**",
+        min_value=1,
+        max_value=10,
+        value=DEFAULTS.games_per_opponent,
     )
 
 with main_col3:
@@ -166,6 +173,7 @@ with output_col1:
 
                 params = PlannerParams(
                     n_iterations=n_iterations,
+                    games_per_opponent=games_per_opponent,
                     m=m + 1,  # from rest days to time slots
                     r_max=r_max + 2,  # from rest days to time slots
                     penalties=d_penalties,

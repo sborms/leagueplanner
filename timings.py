@@ -6,9 +6,11 @@ import pandas as pd
 
 from tests.utils import optimize
 
-OVERWRITE_ORACLE = False
+np.random.seed(505)
 
-N_TEAMS_LIST = [13]
+OVERWRITE_ORACLE = False  # if True, align setup with tests/test_default.py
+
+N_TEAMS_LIST = [13, 4]
 N_ITERATIONS_LIST = [10, 100, 1000, 10000, 100000, 1000000]
 
 

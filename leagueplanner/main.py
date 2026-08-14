@@ -37,6 +37,7 @@ def main(
     alpha: Annotated[float, typer.Option(help="Probability of picking perturbation operator 1.")] = DEFAULTS.alpha,
     beta: Annotated[float, typer.Option(help="Probability of removing a game in operator 1.")] = DEFAULTS.beta,
     cost_excessive_rest_days: Annotated[float, typer.Option(help="Cost for excessive rest days.")] = DEFAULTS.cost_excessive_rest_days,
+    games_per_opponent: Annotated[int, typer.Option(help="Number of games between each pair of teams.")] = DEFAULTS.games_per_opponent,
 ):
     # fmt: on
     if seed is not None:
@@ -75,6 +76,7 @@ def main(
             alpha=alpha,
             beta=beta,
             cost_excessive_rest_days=cost_excessive_rest_days,
+            games_per_opponent=games_per_opponent,
         )
 
         planner = LeaguePlanner(

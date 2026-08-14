@@ -9,6 +9,7 @@
 If you are looking to schedule a sports league with at least the following constraints...
 
 - Everyone plays 1 home game and 1 away game against each other (double round-robin)
+    - It is also possible to enforce 3x, 4x, 5x, ... matchups while keeping home/away as balanced as possible (cf. the `games_per_opponent` parameter)
 - Home games are played on reserved dates
 - Away games are not played on unavailable dates
 - No team plays 2 games on the same day
@@ -66,7 +67,8 @@ You can use the planner from the command line as follows:
 --input_file "example/input.xlsx" \
 --output_folder "example/output" \
 --seed 321 \
---n_iterations 500
+--n_iterations 5000 \
+--games-per-opponent 2 
 ```
 
 The above example can also be run with `make example`.
