@@ -116,4 +116,7 @@ def main(
     df_stats = pd.DataFrame(d_stats, index=input.sheet_names)
     df_stats.to_excel(f"{output_folder}/stats.xlsx")
 
+    n_unscheduled = df_stats['unscheduled'].iloc[0]
+    print(f"[blue]Unscheduled games[/blue]: {n_unscheduled}")
+
     print("[green]Done![/green] :smile:")

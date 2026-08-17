@@ -35,8 +35,10 @@ profile:
 	
 experiment:
 	uv run 2rr \
-		--input-file "experiments/real_life_test_input_2_matchups.xlsx" \
+		--input-file "experiments/real_life_test_input_3_matchups_stripped.xlsx" \
 		--output-folder "experiments/difficile" \
 		--seed 505 \
 		--n-iterations 10000 \
-		--games-per-opponent 2
+		--r-max 4 \
+		--m 2 \
+		--games-per-opponent 3

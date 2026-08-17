@@ -204,6 +204,7 @@ class LeaguePlanner:
         :param progress_bar: A progress bar object, e.g., streamlit.progress(0.0).
         """
         if self.games_per_opponent != 2:
+            # TODO: Reorganize to avoid LeaguePlanner calling LayeredPlanner calling LeaguePlanner
             from .layered_planner import LayeredPlanner  # noqa: I001
 
             layered_planner = LayeredPlanner(

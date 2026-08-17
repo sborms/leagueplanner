@@ -47,5 +47,7 @@ class PlannerParams:
     games_per_opponent: int = 2
 
     def __post_init__(self) -> None:
+        if self.r_max < 2:
+            raise ValueError("Parameter 'r_max' must be at least 2")
         if self.games_per_opponent < 1:
             raise ValueError("Parameter 'games_per_opponent' must be at least 1")

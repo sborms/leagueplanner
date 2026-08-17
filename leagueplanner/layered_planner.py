@@ -60,7 +60,7 @@ class LayeredPlanner:
         col_home = self.output_cols[3]
         col_away = self.output_cols[4]
 
-        # build one home-opponent map per 2RR layer + one extra parity layer for odd rounds
+        # build one home-opponent map per 2RR layer and one extra layer for odd round
         home_maps = self._build_layer_home_maps()
         home_targets = self._compute_home_targets(self.input.sets["teams"], home_maps)
 
@@ -71,6 +71,17 @@ class LayeredPlanner:
 
         list_full_costs, frames = [], []
         for layer_idx, home_map in enumerate(home_maps):
+            # c_p = {k: len(v) for k, v in played_slots_by_team.items()}
+            # c_h = {k: len(v) for k, v in used_home_slots.items()}
+            # print(
+            #     f"Running layer {layer_idx + 1}/{n_layers}\n"
+            #     f"Home map:\n{home_map}\n"
+            #     f"Played slots:\n{played_slots_by_team}\n"
+            #     f"Played slots (counts):\n{c_p}\n"
+            #     f"Used home slots:\n{used_home_slots}\n"
+            #     f"Used home slots (counts):\n{c_h}"
+            # )
+
             layer_input = self._prepare_layer_input(
                 layer_idx=layer_idx,
                 n_layers=n_layers,
@@ -91,7 +102,7 @@ class LayeredPlanner:
             df_layer = layer_planner.create_calendar().copy()
 
             if layer_idx == n_layers - 1 and self._has_odd_round:
-                # in the odd extra layer, only keep games that match the parity-driven edges
+                # in the odd extra layer only keep games that match the edges
                 allowed_pairs = {
                     (home_idx, away_idx)
                     for home_idx, opponents in home_map.items()
@@ -108,7 +119,7 @@ class LayeredPlanner:
             df_layer["_layer"] = layer_idx
             frames.append(df_layer)
 
-            # track occupied slots so the next layers avoid near-collisions for each team
+            # track occupied slots for subsequent layers
             scheduled_games = df_layer.dropna(subset=[col_date])
             for slot_date, home_team, away_team in scheduled_games[
                 [col_date, col_home, col_away]
@@ -122,14 +133,18 @@ class LayeredPlanner:
                 away_idx = self.team_idx_by_name[away_team]
                 played_slots_by_team[away_idx].add(int(slot))
 
+            # TODO: Costs are underestimated / wrongly concatenated
+            #   e.g. penalties for unscheduled games are not counted across layers
+            #   see also commented out bit in app.py where cost of unfeasible schedules is removed
             if layer_planner.list_full_costs:
-                # TODO: Costs are underestimated (e.g. penalties for unscheduled games are not counted across layers)
                 # NOTE: Each layer solves a 2RR subproblem, and cross-layer consistency is
                 # enforced through updated availability/forbidden sets - cost traces are concatenated
                 # because they represent sequential optimization work across layers and can be
                 # plotted just like the default 2RR mode
                 list_full_costs.extend(layer_planner.list_full_costs)
 
+            # NOTE: Bring the progress from out of the tabu phase to the layered phase,
+            # although this will give only slight bumps in progress
             if progress_bar is not None:
                 progress_bar.progress((layer_idx + 1) / n_layers)
 
@@ -172,6 +187,7 @@ class LayeredPlanner:
         edges = {team_idx: set() for team_idx in self.team_indices}
 
         # get one directed home edge for each pair
+        # NOTE: This is not really optimized based on slot availability
         ordered_teams = sorted(self.team_indices)
         for i_pos, i in enumerate(ordered_teams):
             for j_pos in range(i_pos + 1, len(ordered_teams)):
