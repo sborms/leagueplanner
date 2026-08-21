@@ -115,6 +115,9 @@ class LeaguePlanner:
         ]
         self._rest_days_buf = np.empty((self.n_teams, 2 * self.n_teams))
 
+        # initialize list with costs per home team
+        self.list_home_costs = [None] * self.n_teams
+
         # values populated during the layered approach
         self._calendar = None
         self._home_targets = None
@@ -126,19 +129,13 @@ class LeaguePlanner:
             self.list_full_costs = []
             return
 
-        X = self.X
-        n_teams = self.n_teams
-
-        # initialize list with costs per home team
-        self.list_home_costs = [None] * n_teams
-
         # method 1
         # repeatedly select team with smallest number of available home slots
-        X1 = X.copy()
+        X1 = self.X.copy()
         list_home_costs1 = self.list_home_costs.copy()
         d_spots1 = self._update_dict_available_spots(method=1)  # initialize dict
 
-        for _ in range(n_teams):
+        for _ in range(self.n_teams):
             team_idx = list(d_spots1)[0]  # pick team
 
             # solve transportation problem for home team in current schedule X1
@@ -154,11 +151,11 @@ class LeaguePlanner:
 
         # method 2
         # repeatedly select team with smallest number of possible games
-        X2 = X.copy()
+        X2 = self.X.copy()
         list_home_costs2 = self.list_home_costs.copy()
         d_spots2 = self._update_dict_available_spots(method=2, X=X2)  # initialize dict
 
-        for _ in range(n_teams):
+        for _ in range(self.n_teams):
             team_idx = list(d_spots2)[0]  # pick team
 
             # solve transportation problem for home team in current schedule X2

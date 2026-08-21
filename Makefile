@@ -40,5 +40,5 @@ experiment:
 		--seed 505 \
 		--n-iterations 10000 \
 		--r-max 4 \
-		--m 2 \
+		--m 7 \
 		--games-per-opponent 3

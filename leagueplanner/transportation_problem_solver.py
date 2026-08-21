@@ -51,8 +51,8 @@ class TransportationProblemSolver:
         team_idx: int,
     ) -> tuple[list, int]:
         """
-        Solves transportation problem for given home team (= row) and set of home slots.
-        Returns updated X alongside cost from adjacency matrix and picked indexes.
+        Solves transportation problem for given home team (= picked row of X).
+        Returns updated X (modified in-place) alongside cost from adjacency matrix.
         """
         total_cost = self._rust.solve(X, team_idx)
         return X, total_cost
