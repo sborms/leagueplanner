@@ -41,4 +41,5 @@ experiment:
 		--n-iterations 10000 \
 		--r-max 4 \
 		--m 7 \
-		--games-per-opponent 3
+		--games-per-opponent 3 \
+		--skip-plots

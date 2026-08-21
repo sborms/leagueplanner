@@ -91,11 +91,9 @@ input.parse()
 
 # run the optimizer to find a good schedule
 planner = LeaguePlanner(input=input)
-planner.construction_phase()
-planner.tabu_phase()
+X, df = planner.optimize()
 
-# convert the schedule into a usable Excel file
-df = planner.create_calendar()
+# store the schedule as an Excel file
 planner.store_calendar(df, file="out/calendar.xlsx")
 ```
 

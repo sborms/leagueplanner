@@ -1,12 +1,12 @@
 import pandas as pd
 import pytest
-from utils import optimize
+from utils import run_optimizer
 
 
 @pytest.mark.parametrize("n_teams", [9])
 @pytest.mark.parametrize("games_per_opponent", [1, 3, 5])
 def test_odd_games_per_opponent(n_teams, games_per_opponent):
-    df = optimize(n_teams, games_per_opponent=games_per_opponent)
+    df = run_optimizer(n_teams, games_per_opponent=games_per_opponent)
 
     pairs = df.apply(lambda row: tuple(sorted([row["Home"], row["Away"]])), axis=1)
     counts = pairs.value_counts()
@@ -22,7 +22,7 @@ def test_odd_games_per_opponent(n_teams, games_per_opponent):
 @pytest.mark.parametrize("n_teams", [7])
 @pytest.mark.parametrize("games_per_opponent", [4, 6])
 def test_even_games_per_opponent(n_teams, games_per_opponent):
-    df = optimize(n_teams, games_per_opponent=games_per_opponent)
+    df = run_optimizer(n_teams, games_per_opponent=games_per_opponent)
 
     pairs = df.apply(lambda row: tuple(sorted([row["Home"], row["Away"]])), axis=1)
     counts = pairs.value_counts()

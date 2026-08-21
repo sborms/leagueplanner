@@ -10,7 +10,6 @@ from leagueplanner.constants import MAX_ALLOWED_REST_DAYS, OUTPUT_COLS
 from leagueplanner.utils import gather_stats
 
 DEFAULTS = PlannerParams()
-SHOW_TOP = False
 
 
 def download_output(
@@ -184,34 +183,13 @@ with output_col1:
                     params=params,
                 )
 
-                planner.construction_phase()
-
                 progress_bar = st.progress(0.0)
-                planner.tabu_phase(progress_bar)
-
-                # create calendar
-                df = planner.create_calendar()
+                _, df = planner.optimize(progress_bar)  # created calendar
 
                 # compute validation statistics
                 d_val = planner.validate_calendar(df, fl_net_rest_days=True)
                 d_stats = gather_stats(d_val, d_stats)
                 index_table += [sheet_name]
-
-                # gather info for top calendars
-                if SHOW_TOP:
-                    top_X, list_all_calendars = planner.top_X, []
-                    # NOTE: Drop first one because this is the optimal solution
-                    for _, d_X in enumerate(top_X[1:], start=1):
-                        cost, X = d_X["cost"], d_X["X"]
-
-                        _df = planner.create_calendar(X)
-                        list_all_calendars.append(_df)
-
-                        d_val = planner.validate_calendar(
-                            _df, fl_net_rest_days=True, cost=cost
-                        )
-                        d_stats = gather_stats(d_val, d_stats)
-                    index_table += [sheet_name] * (len(top_X) - 1)
 
                 # store calendar output
                 df_out = df[OUTPUT_COLS].copy()
@@ -237,7 +215,7 @@ with output_col1:
 with output_col2:
     if len(output_sch) > 0:
         df_stats = pd.DataFrame(d_stats, index=index_table)
-        df_stats = df_stats.astype(int)
+        df_stats = df_stats.astype("Int64")  # deals gracefully with NaN values
 
         # remove cost of unfeasible schedules
         # df_stats["cost"] = df_stats["cost"] - (

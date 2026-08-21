@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import numpy as np
 import pandas as pd
 
-from tests.utils import optimize
+from tests.utils import run_optimizer
 
 np.random.seed(505)
 
@@ -25,7 +25,7 @@ for n_teams in N_TEAMS_LIST:
     list_elapsed, list_X = [], []
     for n_iterations in N_ITERATIONS_LIST:
         with timer() as elapsed:
-            X = optimize(n_teams, n_iterations)
+            X = run_optimizer(n_teams, n_iterations)
         elapsed_seconds = elapsed()
 
         list_elapsed.append(elapsed_seconds)

@@ -38,6 +38,7 @@ def main(
     beta: Annotated[float, typer.Option(help="Probability of removing a game in operator 1.")] = DEFAULTS.beta,
     cost_excessive_rest_days: Annotated[float, typer.Option(help="Cost for excessive rest days.")] = DEFAULTS.cost_excessive_rest_days,
     games_per_opponent: Annotated[int, typer.Option(help="Number of games between each pair of teams.")] = DEFAULTS.games_per_opponent,
+    skip_plots: Annotated[bool, typer.Option(help="Skip plotting of rest days and running minimum costs.")] = False,
 ):
     # fmt: on
     if seed is not None:
@@ -85,19 +86,9 @@ def main(
             logger=logger,
         )
 
-        logger.info("Phase 1: Construction")
-        planner.construction_phase()
-
-        logger.info("Phase 2: Tabu & perturbation")
-        planner.tabu_phase()
+        _, df = planner.optimize()
         logger.info("Completed scheduling")
 
-        planner.plot_minimum_costs(
-            title_suffix=sheet_name, path=f"{output_folder}/{sheet_name}_costs.png"
-        )
-        logger.info("Stored running minimum cost plot")
-
-        df = planner.create_calendar()
         planner.store_calendar(df, file=f"{output_folder}/{sheet_name}.xlsx")
         logger.info("Stored calendar")
 
@@ -105,13 +96,19 @@ def main(
         d_stats = gather_stats(d_val, d_stats)
         logger.info("Gathered validation info")
 
-        planner.plot_rest_days(
-            series=d_val["df_rest_days"].loc["TOTAL"],
-            clips=(clip_bot, clip_upp),
-            title_suffix=sheet_name,
-            path=f"{output_folder}/{sheet_name}_rest_days.png",
-        )
-        logger.info("Stored rest days plot")
+        if not skip_plots:
+            planner.plot_minimum_costs(
+                planner.list_full_costs, title_suffix=sheet_name, path=f"{output_folder}/{sheet_name}_costs.png",
+            )
+            logger.info("Stored running minimum cost plot")
+
+            planner.plot_rest_days(
+                series=d_val["df_rest_days"].loc["TOTAL"],
+                clips=(clip_bot, clip_upp),
+                title_suffix=sheet_name,
+                path=f"{output_folder}/{sheet_name}_rest_days.png",
+            )
+            logger.info("Stored rest days plot")
 
     df_stats = pd.DataFrame(d_stats, index=input.sheet_names)
     df_stats.to_excel(f"{output_folder}/stats.xlsx")

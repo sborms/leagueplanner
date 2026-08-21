@@ -81,3 +81,22 @@ def drop_nearby_points_from_array(arr: np.array, r_max: int) -> np.array:
             arr_out.append(val)
 
     return np.array(arr_out)
+
+
+def get_feasible_home_slots(sets_home: dict[int, set[int]], r_max: int) -> dict:
+    """Returns a dictionary with feasible home slots per team."""
+    # NOTE: This deals with teams providing more than one home slot within
+    # 'r_max' slots by simply dropping the first slot per team
+    feasible_home_slots = {}
+    for team_idx, set_home in sets_home.items():
+        feasible_home_slots[team_idx] = drop_nearby_points_from_array(set_home, r_max)
+    return feasible_home_slots
+
+
+def get_homeless_teams(d_slots: dict) -> list:
+    """Returns those teams that have no home slots."""
+    teams_without_home_slots = []
+    for team_idx, set_home in d_slots.items():
+        if len(set_home) == 0:
+            teams_without_home_slots.append(team_idx)
+    return teams_without_home_slots

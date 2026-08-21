@@ -4,7 +4,7 @@ import pandas as pd
 from leagueplanner import InputParser, LeaguePlanner, PlannerParams
 
 
-def optimize(
+def run_optimizer(
     n_teams: int,
     n_iterations: int = 500,
     input_file: str = "example/input.xlsx",
@@ -26,10 +26,9 @@ def optimize(
             games_per_opponent=games_per_opponent,
         ),
     )
-    planner.construction_phase()
-    planner.tabu_phase()
+    X, df = planner.optimize()
 
     if games_per_opponent == 2:
-        return planner.X
+        return X
 
-    return planner.create_calendar()
+    return df

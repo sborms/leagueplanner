@@ -1,18 +1,15 @@
-import bisect
 import logging
-from collections import deque
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import streamlit as st
 
-from .constants import LARGE_NBR, MAX_ALLOWED_REST_DAYS, OUTPUT_COLS
+from .constants import MAX_ALLOWED_REST_DAYS, OUTPUT_COLS
 from .input_parser import InputParser
+from .layered_planner import LayeredPlanner
 from .params import PlannerParams
-from .perturbation import Perturbation
-from .transportation_problem_solver import TransportationProblemSolver as TPS
-from .utils import drop_nearby_points_from_array
+from .solver import Solver
+from .utils import get_feasible_home_slots, get_homeless_teams
 
 # NOTE: These are common reasons why a game remains unscheduled
 # No (or too little) home availabilities
@@ -49,8 +46,6 @@ class LeaguePlanner:
     considered. The number of rest days is 2 in this case (Tuesday and Wednesday).
     """
 
-    output_cols = OUTPUT_COLS
-
     def __init__(
         self,
         input: InputParser,
@@ -71,289 +66,69 @@ class LeaguePlanner:
 
         # assign input data to carry along
         self.input = input
-        self.tabu_length = params.tabu_length
-        self.perturbation_length = params.perturbation_length
-        self.n_iterations = params.n_iterations
-        self.cost_excessive_rest_days = params.cost_excessive_rest_days
-        self.games_per_opponent = params.games_per_opponent
         self.params = params
         self.logger = logger
 
-        # initialize target matrix with teams & slots
-        X = np.eye(len(input.sets["teams"])) * LARGE_NBR  # diagonal is to be ignored
-        self.X = np.where(X == 0, np.nan, X)
-
-        # differentiate between all possible home slots and those feasible
+        # set all possible home slots and those feasible
         self.sets_home = input.sets["home"]
-        self.sets_home_feasible = self._get_feasible_home_slots(params.r_max)
+        self.sets_home_feasible = get_feasible_home_slots(self.sets_home, params.r_max)
+        self.teams_without_home_slots = get_homeless_teams(self.sets_home_feasible)
 
-        # initialize transportation object
-        self.tps = TPS(
-            sets_forbidden=input.sets["forbidden"],
-            sets_home=self.sets_home_feasible,
-            m=params.m,
-            p=params.p,
-            r_max=params.r_max,
-            penalties=params.penalties,
-        )
+        # precomputed variables
+        self.games_per_opponent = params.games_per_opponent
+        self.teams = self.input.sets["teams"]
+        self.has_odd_layer = self.games_per_opponent % 2 == 1
+        self.n_layers_full = self.games_per_opponent // 2
+        self.home_maps = self._build_home_maps()
 
-        # initialize perturbation object
-        self.perturbation = Perturbation(alpha=params.alpha, beta=params.beta)
-
-        # track top X matrices with lowest cost as a list of dicts {"cost": float, "X": np.ndarray}
-        self.top_X = []
-        self._top_X_costs = []  # parallel list for fast bisect insertion
-
-        # handy precomputed variables
-        self.n_teams = len(self.input.sets["teams"])
-        self.teams_without_home_slots = self._get_teams_without_home_slots(
-            self.sets_home_feasible
-        )
-        self.teams_without_home_slots_names = [
-            self.input.sets["teams"][team_idx]
-            for team_idx in self.teams_without_home_slots
-        ]
-        self._rest_days_buf = np.empty((self.n_teams, 2 * self.n_teams))
-
-        # initialize list with costs per home team
-        self.list_home_costs = [None] * self.n_teams
-
-        # values populated during the layered approach
-        self._calendar = None
-        self._home_targets = None
-        self._layered_used_home_slots = None
-
-    def construction_phase(self) -> None:
-        """Generates initial (possibly incomplete) schedule and assigns it to self.X."""
-        if self.games_per_opponent != 2:
-            self.list_full_costs = []
-            return
-
-        # method 1
-        # repeatedly select team with smallest number of available home slots
-        X1 = self.X.copy()
-        list_home_costs1 = self.list_home_costs.copy()
-        d_spots1 = self._update_dict_available_spots(method=1)  # initialize dict
-
-        for _ in range(self.n_teams):
-            team_idx = list(d_spots1)[0]  # pick team
-
-            # solve transportation problem for home team in current schedule X1
-            X1, total_cost = self.tps.solve(X1, team_idx)
-            list_home_costs1[team_idx] = total_cost
-
-            # update available spots
-            d_spots1 = self._update_dict_available_spots(1, X1, d_spots1, team_idx)
-
-        cost1 = sum(list_home_costs1)
-        cost1 += self._count_excessive_rest_days(X1) * self.cost_excessive_rest_days
-        self.logger.info(f"Initialized schedule using method 1 with cost {cost1}")
-
-        # method 2
-        # repeatedly select team with smallest number of possible games
-        X2 = self.X.copy()
-        list_home_costs2 = self.list_home_costs.copy()
-        d_spots2 = self._update_dict_available_spots(method=2, X=X2)  # initialize dict
-
-        for _ in range(self.n_teams):
-            team_idx = list(d_spots2)[0]  # pick team
-
-            # solve transportation problem for home team in current schedule X2
-            X2, total_cost = self.tps.solve(X2, team_idx)
-            list_home_costs2[team_idx] = total_cost
-
-            # update available spots
-            d_spots2 = self._update_dict_available_spots(2, X2, d_spots2, team_idx)
-
-        cost2 = sum(list_home_costs2)
-        cost2 += self._count_excessive_rest_days(X2) * self.cost_excessive_rest_days
-        self.logger.info(f"Initialized schedule using method 2 with cost {cost2}")
-
-        # NOTE: Home costs don't take into account later assigned games but the tabu
-        # phase will account for it - however there is a slight risk that a new best
-        # between the downward biased starting point and the actual cost is missed;
-        # there is always a slight delay between the actual cost and the reported cost
-
-        # pick best method to set schedule after construction phase
-        self.logger.info(f"Comparing costs {cost1} vs. {cost2}")
-        if cost1 < cost2:
-            self.logger.info("Initialization method 1 is best")
-            self.X, self.list_home_costs = X1, list_home_costs1
-        else:
-            self.logger.info("Initialization method 2 is best")
-            self.X, self.list_home_costs = X2, list_home_costs2
-
-        # initialize list with full costs
-        self.list_full_costs = [cost1 if cost1 < cost2 else cost2]
-
-    def tabu_phase(
-        self, progress_bar: st.delta_generator.DeltaGenerator = None
-    ) -> None:
-        """
-        Solves transportation problem to (re)schedule all home games of
-        a non-tabu team (= not recently chosen), for a certain number of
-        iterations or until the full cost reaches zero. Every new optimal
-        schedule is added to self.X.
-
-        Note that this implementation nowhere enforces a minimal cost change
-        before allowed to continue to the next iteration.
-
-        :param progress_bar: A progress bar object, e.g., streamlit.progress(0.0).
-        """
-        if self.games_per_opponent != 2:
-            # TODO: Reorganize to avoid LeaguePlanner calling LayeredPlanner calling LeaguePlanner
-            from .layered_planner import LayeredPlanner  # noqa: I001
-
-            layered_planner = LayeredPlanner(
+    def optimize(self, progress_bar: st.delta_generator.DeltaGenerator = None) -> list:
+        """Runs the construction and tabu phases to generate an optimal schedule."""
+        if self.games_per_opponent == 2:
+            solver = Solver(
                 input=self.input,
                 params=self.params,
                 logger=self.logger,
             )
-            layered_result = layered_planner.run(progress_bar=progress_bar)
 
-            self.list_full_costs = layered_result.list_full_costs
+            solver.construction_phase()
+            solver.tabu_phase(progress_bar)
 
-            self._calendar = layered_result.calendar
-            self._home_targets = layered_result.home_targets
-            self._layered_used_home_slots = layered_result.used_home_slots
-
-            self.top_X = []
-            self._top_X_costs = []
-
-            return
-
-        X = self.X.copy()  # get current schedule
-
-        list_home_costs = self.list_home_costs.copy()
-
-        full_cost_min = self.list_full_costs[-1]
-        self.logger.info(f"Tabu phase starts with cost {full_cost_min}")
-
-        list_tabu = deque()
-        list_nontabu = list(self.input.sets["teams"].keys())
-
-        it = 0
-        while it < self.n_iterations and self.list_full_costs[-1] > 0:
-            it += 1
-            if progress_bar is not None and it % 10 == 0:
-                progress_bar.progress(it / self.n_iterations)
-
-            # check if current schedule needs to be perturbated
-            if it % self.perturbation_length == 0:
-                # perturbate if no better solution found for a while, else keep going
-                if (
-                    self.list_full_costs[-1]
-                    >= self.list_full_costs[-self.perturbation_length]
-                ):
-                    n_unsched_pre = np.sum(np.isnan(X), axis=1)
-                    self.logger.info(f"Perturbating schedule at iteration {it}")
-                    self.perturbation.perturbate(X)
-
-                    # adjust costs based on dropped games from perturbation
-                    n_unsched_pos = np.sum(np.isnan(X), axis=1)
-                    list_home_costs += (n_unsched_pos - n_unsched_pre) * self.tps.p
-
-            # recover team that has been tabu_length iterations in tabu list
-            if it > self.tabu_length:
-                team_nontabu = list_tabu.popleft()
-                list_nontabu.append(team_nontabu)
-
-            # randomly choose non-tabu team
-            team_idx = np.random.choice(list_nontabu)
-            list_tabu.append(team_idx)
-            list_nontabu.remove(team_idx)
-
-            # reschedule home games of picked team
-            X[team_idx, :] = np.nan
-            X[team_idx, team_idx] = LARGE_NBR
-
-            X, total_cost = self.tps.solve(X, team_idx)
-
-            # update costs, first including the cost for the excessive rest days
-            list_home_costs[team_idx] = total_cost
-            n_excessive_rest_days = self._count_excessive_rest_days(X)
-
-            full_cost = (
-                sum(list_home_costs)
-                + n_excessive_rest_days * self.cost_excessive_rest_days
-            )
-            self.list_full_costs.append(full_cost)
-
-            # update top_X with current X and cost
-            self._update_top_X(full_cost, X)
-
-            # check quality
-            if full_cost < full_cost_min:  # new best
-                self.logger.info(
-                    f"!!! New best at iteration {it:>6} -> "
-                    f"{full_cost:>9.1f} < {full_cost_min:<9.1f} | "
-                    f"Excessive rest days = {n_excessive_rest_days}"
-                )
-                full_cost_min = full_cost
-                self.X = X.copy()  # update to new optimal schedule
-
-        # set progress bar to 100% (needed in case of early termination)
-        if progress_bar is not None:
-            progress_bar.progress(1.0)
-
-    def create_calendar(self, X: np.ndarray = None) -> pd.DataFrame:
-        """Creates a calendar DataFrame from the optimal schedule."""
-        if self.games_per_opponent != 2:
-            if self._calendar is None:
-                return pd.DataFrame(columns=self.output_cols)
-            return self._calendar.copy()
-
-        X = X if X is not None else self.X
-
-        core = self.input.core
-        teams = self.input.sets["teams"]
-        locations = self.input.locations
-        set_slots = self.input.sets["slots"]
-
-        list_team, list_oppo, list_location, list_date, list_hour = [], [], [], [], []
-
-        for i in range(X.shape[0]):
-            team = teams[i]
-            for j in range(X.shape[1]):
-                if i == j:
-                    continue
-                oppo = teams[j]
-
-                list_team.append(team)
-                list_oppo.append(oppo)
-                list_location.append(locations[team])
-
-                slot = X[i, j]
-                if not pd.isna(slot):
-                    list_date.append(set_slots[slot])
-                    list_hour.append(core[team].loc[slot])
-                else:
-                    list_date.append(np.nan)
-                    list_hour.append(np.nan)
-
-        df = pd.DataFrame(
-            {
-                self.output_cols[0]: list_date,
-                self.output_cols[1]: list_hour,
-                self.output_cols[2]: list_location,
-                self.output_cols[3]: list_team,
-                self.output_cols[4]: list_oppo,
+            self.list_full_costs = solver.list_full_costs
+            self._used_home_slots = {
+                team_idx: set(solver.X[team_idx, :]) for team_idx in self.teams
             }
-        )
 
-        df[self.output_cols[0]] = pd.to_datetime(df[self.output_cols[0]])
-        df = df.sort_values(self.output_cols[0])
+            return solver.X, solver.create_calendar()
+        else:
+            self.logger.info(
+                f"Running layered planner for {self.n_layers_full} full layer(s) and {int(self.has_odd_layer)} odd layer"
+            )
+            layered_planner = LayeredPlanner(
+                input=self.input,
+                params=self.params,
+                logger=self.logger,
+                # pass-along parameters
+                has_odd_layer=self.has_odd_layer,
+                n_layers_full=self.n_layers_full,
+                home_maps=self.home_maps,
+            )
+            opt = layered_planner.run(progress_bar)
 
-        return df
+            self.list_full_costs = opt.list_full_costs
+            self._used_home_slots = opt.used_home_slots
+
+            return None, opt.calendar
+
+    ##################################
+    ### Calendar functionality #######
+    ##################################
 
     def store_calendar(self, df: pd.DataFrame, file: str) -> None:
         """Stores generated calendar as an Excel file."""
         df_out = df.copy()
-        df_out[self.output_cols[0]] = df_out[self.output_cols[0]].dt.strftime(
-            "%Y-%m-%d"
-        )
+        df_out[OUTPUT_COLS[0]] = df_out[OUTPUT_COLS[0]].dt.strftime("%Y-%m-%d")
 
-        df_out[self.output_cols].to_excel(file, index=False)
+        df_out[OUTPUT_COLS].to_excel(file, index=False)
 
     def validate_calendar(
         self,
@@ -361,25 +136,31 @@ class LeaguePlanner:
         fl_net_rest_days: bool = False,
         cost: float = None,
     ) -> dict:
-        """Gathers a dictionary with validation data on the generated schedule."""
-        teams = self.input.sets["teams"]
+        """
+        Gathers a dictionary with validation data about the generated schedule.
+
+        :param df: Generated schedule.
+        :param fl_net_rest_days: If True, returns the adjusted rest days by not counting team unavailabilities as a rest day.
+        :param cost: (optional) Cost of the generated schedule. If not provided, computed from the list of full costs.
+        """
+        teams = self.teams
+        teams_without_home_slots_names = [
+            teams[team_idx] for team_idx in self.teams_without_home_slots
+        ]
 
         d_val = {}
 
         # grab some general statistics first
         d_val["teams"] = len(teams)
         d_val["games"] = len(df)
-        d_val["unscheduled"] = sum(df[self.output_cols[0]].isna())
+        d_val["unscheduled"] = sum(df[OUTPUT_COLS[0]].isna())
 
-        if cost is None:
+        if cost is None or not hasattr(self, "list_full_costs"):
             cost = min(self.list_full_costs) if self.list_full_costs else 0
         d_val["cost"] = cost
 
         # overview of total number of home slots less than needed (per-team basis)
-        if self.games_per_opponent == 2:
-            d_req_home_games = {team_idx: len(teams) - 1 for team_idx in teams}
-        else:
-            d_req_home_games = self._home_targets
+        d_req_home_games = self._compute_home_targets(teams, self.home_maps)
 
         n_home_slots_short = sum(
             [
@@ -391,16 +172,14 @@ class LeaguePlanner:
 
         # overview of number of games between two teams
         df["pairs"] = df.apply(
-            lambda row: tuple(
-                sorted([row[self.output_cols[3]], row[self.output_cols[4]]])
-            ),
+            lambda row: tuple(sorted([row[OUTPUT_COLS[3]], row[OUTPUT_COLS[4]]])),
             axis=1,
         )
 
         d_val["pairs"] = df["pairs"].value_counts()
 
         # overview of days between games per pair of teams
-        df["days_diff"] = df.groupby("pairs")[self.output_cols[0]].diff().dt.days
+        df["days_diff"] = df.groupby("pairs")[OUTPUT_COLS[0]].diff().dt.days
         df_days_diff_pairs = (
             df[["pairs", "days_diff"]]
             .dropna()
@@ -431,7 +210,7 @@ class LeaguePlanner:
         ]
         d_val["n_high_rest_days_all"] = series_rest_days_excessive.count()
         d_val["n_high_rest_days_rel"] = series_rest_days_excessive[
-            ~series_rest_days_excessive.index.isin(self.teams_without_home_slots_names)
+            ~series_rest_days_excessive.index.isin(teams_without_home_slots_names)
         ].count()
 
         return d_val
@@ -443,9 +222,9 @@ class LeaguePlanner:
         :param df: DataFrame with generated schedule.
         :param net: If True, returns the adjusted rest days by not counting team unavailabilities as a rest day.
         """
-        col_date = self.output_cols[0]
-        col_home = self.output_cols[3]
-        col_away = self.output_cols[4]
+        col_date = OUTPUT_COLS[0]
+        col_home = OUTPUT_COLS[3]
+        col_away = OUTPUT_COLS[4]
         col_team = "Team"
 
         df_teams = pd.concat(
@@ -476,9 +255,9 @@ class LeaguePlanner:
 
     def make_df_schedules_by_team(self, df: pd.DataFrame) -> pd.DataFrame:
         """Reorders the schedules input by team. Assumes it is already sorted by date and hour."""
-        col_date = self.output_cols[0]
-        col_home = self.output_cols[-2]
-        col_away = self.output_cols[-1]
+        col_date = OUTPUT_COLS[0]
+        col_home = OUTPUT_COLS[-2]
+        col_away = OUTPUT_COLS[-1]
         col_team = "Team"
 
         # clean up some irrelevant columns from validation process first
@@ -511,50 +290,19 @@ class LeaguePlanner:
 
     def make_df_unused_home_slots(self) -> pd.DataFrame:
         """Forms DataFrame with teams and their unused home slots."""
-        if self.games_per_opponent != 2:
-            col_date = self.output_cols[0]
-            col_team = "Team"
-            used_slots = self._layered_used_home_slots or {
-                team_idx: set() for team_idx in self.input.sets["teams"]
-            }
+        if not hasattr(self, "_used_home_slots"):
+            raise ValueError("Used home slots not computed yet. Run optimize() first.")
 
-            list_unused = []
-            for team_idx, team_name in self.input.sets["teams"].items():
-                unused_home_slots = sorted(
-                    [
-                        self.input.sets["slots"][s]
-                        for s in set(self.sets_home[team_idx]).difference(
-                            used_slots[team_idx]
-                        )
-                    ]
-                )
-                df_unused = pd.DataFrame({"unused": unused_home_slots})
-                if len(df_unused) == 0:
-                    continue
-                df_unused[col_team] = team_name
-                list_unused.append(df_unused)
-
-            if not list_unused:
-                return pd.DataFrame(columns=[col_date])
-
-            df_unused_all = pd.concat(list_unused)[[col_team, "unused"]].set_index(
-                col_team
-            )
-            df_unused_all = df_unused_all.rename(columns={"unused": col_date})
-            df_unused_all = df_unused_all.sort_values([col_team, self.output_cols[0]])
-            df_unused_all[col_date] = df_unused_all[col_date].dt.strftime("%d/%m/%Y")
-            return df_unused_all
-
-        col_date = self.output_cols[0]
+        col_date = OUTPUT_COLS[0]
         col_team = "Team"
 
         list_unused = []
-        for team_idx, team_name in self.input.sets["teams"].items():
+        for team_idx, team_name in self.teams.items():
             unused_home_slots = sorted(
                 [
                     self.input.sets["slots"][s]
                     for s in set(self.sets_home[team_idx]).difference(
-                        set(self.X[team_idx, :])
+                        self._used_home_slots[team_idx]
                     )
                 ]
             )
@@ -565,9 +313,12 @@ class LeaguePlanner:
             df_unused[col_team] = team_name
             list_unused.append(df_unused)
 
+        if not list_unused:
+            return pd.DataFrame(columns=[col_date])
+
         df_unused_all = pd.concat(list_unused)[[col_team, "unused"]].set_index(col_team)
         df_unused_all = df_unused_all.rename(columns={"unused": col_date})
-        df_unused_all = df_unused_all.sort_values([col_team, self.output_cols[0]])
+        df_unused_all = df_unused_all.sort_values([col_team, OUTPUT_COLS[0]])
         df_unused_all[col_date] = df_unused_all[col_date].dt.strftime("%d/%m/%Y")
 
         return df_unused_all
@@ -576,21 +327,18 @@ class LeaguePlanner:
     ### Plotting functionality #######
     ##################################
 
-    def plot_minimum_costs(self, title_suffix: str = "", path: str = None) -> None:
+    def plot_minimum_costs(
+        self, list_full_costs: list, title_suffix: str = "", path: str = None
+    ) -> None:
         """
         Plots evolution of running minimum cost during tabu phase.
 
+        :param list_full_costs: List of cost per iteration.
         :param title_suffix: Suffix to add to the title of the plot.
         :param path: Path to save the plot as an image (if not None).
         """
-        if not hasattr(self, "list_full_costs"):
-            self.logger.warning(
-                "No costs available for plotting, run self.tabu_phase() first"
-            )
-            return
-
         list_running_minimum_cost = [
-            min(self.list_full_costs[: i + 1]) for i in range(len(self.list_full_costs))
+            min(list_full_costs[: i + 1]) for i in range(len(list_full_costs))
         ]
 
         # create plot
@@ -672,76 +420,15 @@ class LeaguePlanner:
     ### Class utils ##################
     ##################################
 
-    def _get_feasible_home_slots(self, r_max: int) -> dict:
-        """Returns a dictionary with feasible home slots per team."""
-        # NOTE: This deals with teams providing more than one home slot within
-        # 'r_max' slots by simply dropping the first slot per team
-        feasible_home_slots = {}
-        for team_idx, set_home in self.sets_home.items():
-            feasible_home_slots[team_idx] = drop_nearby_points_from_array(
-                set_home, r_max
-            )
-        return feasible_home_slots
-
-    def _get_teams_without_home_slots(self, d_slots: dict) -> dict:
-        """Returns a dictionary with teams that have no home slots."""
-        teams_without_home_slots = []
-        for team_idx, set_home in d_slots.items():
-            if len(set_home) == 0:
-                teams_without_home_slots.append(team_idx)
-        return teams_without_home_slots
-
-    def _update_dict_available_spots(
-        self,
-        method: int,
-        X: np.ndarray = None,
-        d_spots: dict = None,
-        team_idx_last: int = None,
-    ) -> dict:
-        """Updates available home/game spots for each team during construction phase."""
-        sets_home = self.sets_home
-
-        if team_idx_last is not None:
-            # drop last processed team
-            d_spots.pop(team_idx_last)
-
-        if method == 1:
-            if d_spots is None:
-                # initialize spots from available home time slots
-                d_spots = {key: len(sets_home[key]) for key in self.input.sets["teams"]}
-            else:
-                # subtract current scheduled away games
-                d_spots = {
-                    key: v - np.sum(np.isin(sets_home[key], X[:, key]))
-                    for key, v in d_spots.items()
-                }
-        elif method == 2:
-            if d_spots is None:
-                d_spots = dict.fromkeys(self.input.sets["teams"])
-            for team_idx in d_spots:
-                set_home = sets_home[team_idx]
-                opponents = [t for t in range(X.shape[0]) if t != team_idx]
-
-                m = self.tps.create_cost_matrix(X, team_idx, set_home, opponents)
-
-                # count number of home slots possible for each opponent
-                home_option_score = np.sum(m == 0, axis=0).min()
-                d_spots[team_idx] = home_option_score
-
-        # sort by number of spots (low to high)
-        d_spots = dict(sorted(d_spots.items(), key=lambda x: x[1]))
-
-        return d_spots
-
     def _get_df_forbidden(self) -> pd.DataFrame:
         """Creates DataFrame with forbidden time slots for each team."""
         if not hasattr(self, "df_forbidden"):
-            col_date = self.output_cols[0]
+            col_date = OUTPUT_COLS[0]
             col_team = "Team"
 
             data = []
             for team_idx, time_slots in self.input.sets["forbidden"].items():
-                team_name = self.input.sets["teams"][team_idx]
+                team_name = self.teams[team_idx]
                 for slot in time_slots:
                     date = self.input.sets["slots"][slot]
                     data.append({col_team: team_name, col_date: date})
@@ -787,51 +474,46 @@ class LeaguePlanner:
 
         return df
 
-    def _update_top_X(self, cost: float, X: np.ndarray, n: int = 10) -> None:
-        """
-        Adds the current X and cost to self.top_X if it belongs in the top 'n' lowest costs.
-        Keeps self.top_X sorted by ascending cost with max length 'n'.
-        """
-        # skip if cost doesn't qualify for top n
-        if len(self.top_X) >= n and cost >= self._top_X_costs[-1]:
-            return
+    def _build_home_maps(self) -> list[dict[int, set[int]]]:
+        """Builds a list of home-opponent maps per 2RR layer and one extra layer if odd round."""
+        opponents_all = {
+            team_idx: set(self.teams.keys()) - {team_idx} for team_idx in self.teams
+        }
 
-        entry = {"cost": cost, "X": np.copy(X)}
-        idx = bisect.bisect_left(self._top_X_costs, cost)
-        self.top_X.insert(idx, entry)
-        self._top_X_costs.insert(idx, cost)
-        if len(self.top_X) > n:
-            self.top_X.pop()
-            self._top_X_costs.pop()
+        home_maps = [
+            {team_idx: set(opponents) for team_idx, opponents in opponents_all.items()}
+            for _ in range(self.n_layers_full)
+        ]
 
-    def _count_excessive_rest_days(self, X: np.ndarray) -> float:
-        """
-        Returns how often the all teams have rest days > MAX_ALLOWED_REST_DAYS for the given schedule.
-        Ignores a team if it has no available home slots (cf. LeaguePlanner._get_teams_without_home_slots()).
-        """
-        LARGE_SENTINEL = 1e18
+        if self.has_odd_layer:
+            home_maps.append(self._build_extra_home_edges())
 
-        n = self.n_teams
+        return home_maps
 
-        # combine all games per team using preallocated buffer: row (home games) + column (away games)
-        buf = self._rest_days_buf
-        buf[:, :n] = X
-        buf[:, n:] = X.T
+    def _build_extra_home_edges(self) -> dict[int, set[int]]:
+        """Builds a home-opponent map for the extra layer in case of an odd number of games per opponent."""
+        edges = {team_idx: set() for team_idx in self.teams}
 
-        # mask invalid slots (NaN and LARGE_NBR diagonal), replace with finite sentinel
-        buf[np.isnan(buf) | (buf == LARGE_NBR)] = LARGE_SENTINEL
+        # get one directed home edge for each pair
+        # NOTE: This is not really optimized based on slot availability
+        ordered_teams = sorted(self.teams.keys())
+        for i_pos, i in enumerate(ordered_teams):
+            for j_pos in range(i_pos + 1, len(ordered_teams)):
+                j = ordered_teams[j_pos]
+                if (i_pos + j_pos) % 2 == 0:
+                    edges[i].add(j)
+                else:
+                    edges[j].add(i)
 
-        # sort each team's slots in-place
-        buf.sort(axis=1)
+        return edges
 
-        # count excessive rest days between consecutive valid games using direct slice subtraction
-        right = buf[:, 1:]
-        excessive = (right - buf[:, :-1] > MAX_ALLOWED_REST_DAYS + 1) & (
-            right < LARGE_SENTINEL
-        )
+    def _compute_home_targets(
+        self, teams: dict[int, str], home_maps: list[dict[int, set[int]]]
+    ) -> dict[int, int]:
+        """Computes the total number of home games each team should play across all layers."""
+        targets = dict.fromkeys(teams, 0)
+        for home_map in home_maps:
+            for team_idx, opponents in home_map.items():
+                targets[team_idx] += len(opponents)
 
-        # exclude teams without home slots
-        if self.teams_without_home_slots:
-            excessive[self.teams_without_home_slots, :] = False
-
-        return int(excessive.sum())
+        return targets

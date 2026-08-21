@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from utils import optimize
+from utils import run_optimizer
 
 ORACLE_FILE = Path(__file__).parent / "oracle.npz"
 
@@ -23,7 +23,7 @@ def results():
     for n_teams in N_TEAMS_LIST:
         for n_iterations in N_ITERATIONS_LIST:
             key = f"teams{n_teams}_iter{n_iterations}"
-            out[key] = optimize(n_teams, n_iterations)
+            out[key] = run_optimizer(n_teams, n_iterations)
 
     return out
 
