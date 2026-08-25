@@ -19,8 +19,7 @@ from .utils import get_feasible_home_slots, get_homeless_teams
 # TODO: Display more flexible Python versions on PyPI (>= 3.13)
 # TODO: Add example how to optimize for a pure 2RR setup (e.g. 10 rounds, 6 teams, 3 games per round)
 # TODO: Allow more input flexibility (e.g. providing raw array input instead of an Excel)
-# TODO: Allow starting from an existing calendar + add parameter to fix certain dates
-#   (e.g. when adding a team to the league) ~ completing partially filled in schedule
+# TODO: Allow starting from an existing calendar + add parameter to fix certain dates (e.g. when adding a new team) ~ completing partially filled in schedule
 # TODO: Auto-tweak input if schedule not fully completed (e.g. decrease date window for problematic teams)
 
 
@@ -494,8 +493,9 @@ class LeaguePlanner:
         """Builds a home-opponent map for the extra layer in case of an odd number of games per opponent."""
         edges = {team_idx: set() for team_idx in self.teams}
 
-        # get one directed home edge for each pair
-        # NOTE: This is not really optimized based on slot availability
+        # NOTE: This gets one directed home edge for each pair but is not
+        # really optimized based on slot availability - ideally, the algorithm
+        # also figures out which opponent edges are most optimal
         ordered_teams = sorted(self.teams.keys())
         for i_pos, i in enumerate(ordered_teams):
             for j_pos in range(i_pos + 1, len(ordered_teams)):

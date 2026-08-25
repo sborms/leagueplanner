@@ -10,14 +10,8 @@ brush:
 	uv run ruff format .
 	uv run ruff check .
 
-install:
-	pip install uv
-	uv venv
-	uv sync
-
-freeze:
-	uv sync
-	uv pip compile pyproject.toml -o requirements.txt >/dev/null
+sync:
+	uv sync --reinstall-package fasttps --upgrade
 
 web:
 	uv run streamlit run app.py

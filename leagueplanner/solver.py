@@ -188,8 +188,10 @@ class Solver:
             list_tabu.append(team_idx)
             list_nontabu.remove(team_idx)
 
-            # reschedule home games of picked team
-            X[team_idx, :] = np.nan
+            # reschedule home games of picked team - keep blocked markers intact
+            row = X[team_idx, :]
+            row_schedulable = np.isfinite(row) & (row < LARGE_NBR)
+            X[team_idx, row_schedulable] = np.nan
             X[team_idx, team_idx] = LARGE_NBR
 
             X, total_cost = self.tps.solve(X, team_idx)
@@ -247,7 +249,7 @@ class Solver:
                 list_location.append(locations[team])
 
                 slot = X[i, j]
-                if not pd.isna(slot):
+                if np.isfinite(slot) and slot < LARGE_NBR:  # valid slot
                     list_date.append(set_slots[slot])
                     list_hour.append(core[team].loc[slot])
                 else:
@@ -346,8 +348,8 @@ class Solver:
         buf[:, :n] = X
         buf[:, n:] = X.T
 
-        # mask invalid slots (NaN and LARGE_NBR diagonal), replace with finite sentinel
-        buf[np.isnan(buf) | (buf == LARGE_NBR)] = LARGE_SENTINEL
+        # mask invalid slots (NaN and blocked markers), replace with finite sentinel
+        buf[np.isnan(buf) | (buf >= LARGE_NBR)] = LARGE_SENTINEL
 
         # sort each team's slots in-place
         buf.sort(axis=1)

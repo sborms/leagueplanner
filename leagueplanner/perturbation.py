@@ -30,7 +30,10 @@ class Perturbation:
 
         Picked with probability self.alpha.
         """
-        X[np.random.rand(*X.shape) < self.beta] = np.nan
+        drop_mask = (
+            (np.random.rand(*X.shape) < self.beta) & np.isfinite(X) & (X < LARGE_NBR)
+        )
+        X[drop_mask] = np.nan
         np.fill_diagonal(X, LARGE_NBR)
 
     def perturbate2(self, X: np.ndarray) -> None:
@@ -43,6 +46,9 @@ class Perturbation:
         """
         idx = np.random.choice(range(X.shape[0]))
 
-        X[idx, :] = np.nan
-        X[:, idx] = np.nan
+        row_schedulable = np.isfinite(X[idx, :]) & (X[idx, :] < LARGE_NBR)
+        col_schedulable = np.isfinite(X[:, idx]) & (X[:, idx] < LARGE_NBR)
+
+        X[idx, row_schedulable] = np.nan
+        X[col_schedulable, idx] = np.nan
         X[idx, idx] = LARGE_NBR

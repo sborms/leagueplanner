@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from .constants import OUTPUT_COLS
+from .constants import LARGE_NBR, OUTPUT_COLS
 from .input_parser import InputParser
 from .params import PlannerParams
 from .solver import Solver
@@ -76,24 +76,8 @@ class LayeredPlanner:
         for layer_idx, home_map in enumerate(self.home_maps):
             self.logger.info(f"** Running layer {layer_idx + 1}/{self.n_layers} **")
 
-            c_p = {k: len(v) for k, v in played_slots_by_team.items()}
-            c_h = {k: len(v) for k, v in used_home_slots.items()}
-            c_a = {k: len(v) for k, v in unused_home_slots.items()}
-            print(
-                f"Home map:\n{home_map}\n"
-                # f"Played slots:\n{played_slots_by_team}\n"
-                f"Played slots (counts):\n{c_p}\n"
-                # f"Used home slots:\n{used_home_slots}\n"
-                f"Used home slots (counts):\n{c_h}\n"
-                f"Unused home slots (counts):\n{c_a}"
-            )
-
             layer_input = self._prepare_layer_input(
                 played_slots_by_team=played_slots_by_team,
-            )
-            print(
-                f"Available home slots (counts):\n"
-                f"{ {k: len(v) for k, v in layer_input.sets['home'].items()} }",
             )
 
             layer_params = copy.deepcopy(self.params)
@@ -104,16 +88,24 @@ class LayeredPlanner:
                 params=layer_params,
                 logger=self.logger,
             )
+
+            if layer_idx == self.n_layers - 1 and self.has_odd_layer:
+                # remake target X with appropriate marked entries
+                solver.X = np.full(solver.X.shape, LARGE_NBR, dtype=float)
+                for row, cols in home_map.items():
+                    for col in cols:
+                        solver.X[row, col] = np.nan  # to fill in
+
+            # optimize
             solver.construction_phase()
             solver.tabu_phase(progress_bar)
 
             df_layer = solver.create_calendar().copy()
 
             if layer_idx == self.n_layers - 1 and self.has_odd_layer:
-                # in the odd extra layer only keep games that match the edges
-                # TODO: This is a suboptimal hack as the solver is still allowed to schedule games that will be removed
-                #   a more elegant solution would be to only solve for the edges in the odd layer
-                #   ideally, it would also figure out which opponent edges are most optimal (cf. _build_extra_home_edges())
+                # NOTE: This post-processing in the odd extra layer only keeps games
+                # that match the edges, which is needed even if the solver is allowed
+                # to correctly only solve for the edges in the odd layer
                 allowed_pairs = {
                     (home_idx, away_idx)
                     for home_idx, opponents in home_map.items()
@@ -149,6 +141,7 @@ class LayeredPlanner:
             # TODO: Costs are underestimated / wrongly concatenated
             #   e.g. penalties for unscheduled games are not counted across layers
             #   see also commented out bit in app.py where cost of unfeasible schedules is removed
+            #   -> change cost plotting so it plots the different layers separately (cf. below)
             if solver.list_full_costs:
                 # NOTE: Each layer solves a 2RR subproblem, and cross-layer consistency is
                 # enforced through updated availability/forbidden sets - cost traces are concatenated

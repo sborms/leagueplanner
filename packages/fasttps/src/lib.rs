@@ -8,12 +8,14 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+
 const DISALLOWED_NBR: f64 = 9_999_999.0; // positive if minimization, negative if maximization
 const DISALLOWED_REPLACE: f64 = 1e15;
 const LARGE_NBR: f64 = 9999.0; // must match Python constants.py
 
 // ─── Hungarian algorithm (Kuhn-Munkres) ──────────────────────────────────────
-// Courtesy to https://github.com/neka-nat/fastmunk for main implementation
+
+/// Courtesy to https://github.com/neka-nat/fastmunk for reference implementation.
 fn kuhn_munkres(weights: ArrayView2<f64>, maximize: bool) -> Vec<(usize, usize)> {
     let nx = weights.nrows();
     let ny = weights.ncols();
@@ -109,20 +111,32 @@ fn kuhn_munkres(weights: ArrayView2<f64>, maximize: bool) -> Vec<(usize, usize)>
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-/// Equivalent of Python legacy _get_team_array(): concatenate X[idx,:] and X[:,idx], filter out LARGE_NBR.
+/// Returns true when the value is marked.
+#[inline]
+fn is_blocked_marker(v: f64) -> bool {
+    v.is_finite() && v >= LARGE_NBR
+}
+
+/// Returns true when a value is an actual scheduled slot (not NaN, not marker).
+#[inline]
+fn is_real_slot(v: f64) -> bool {
+    v.is_finite() && v < LARGE_NBR
+}
+
+/// Concatenates X[idx,:] and X[:,idx], filters out markers.
 #[inline]
 fn get_team_array(x: &ArrayView2<f64>, idx: usize) -> Vec<f64> {
     let n = x.nrows();
     let mut arr = Vec::with_capacity(2 * n);
     for j in 0..x.ncols() {
         let v = x[(idx, j)];
-        if v != LARGE_NBR {
+        if is_real_slot(v) {
             arr.push(v);
         }
     }
     for i in 0..n {
         let v = x[(i, idx)];
-        if v != LARGE_NBR {
+        if is_real_slot(v) {
             arr.push(v);
         }
     }
@@ -147,11 +161,11 @@ fn min_positive_delta(games: &[f64], h: f64, forward: bool) -> Option<f64> {
     }
 }
 
-/// Build cost matrix for a given team. This is the #1 bottleneck.
+/// Builds cost matrix for a given team.
 fn create_cost_matrix_inner(
     x: &ArrayView2<f64>,
     team_idx: usize,
-    set_home: &[f64],
+    set_home: &[f64], // C2 - home date availability = set_home
     opponents: &[usize],
     sets_forbidden: &HashMap<usize, HashSet<i64>>,
     m: f64,
@@ -163,10 +177,8 @@ fn create_cost_matrix_inner(
     let n_oppo = opponents.len();
     let mut am_cost = Array2::<f64>::zeros((n_home, n_oppo));
 
-    // precompute games for the home team
+    // precomputed games for the home team
     let games_team = get_team_array(x, team_idx);
-
-    // C2 - home date availability (home_dates = set_home)
 
     // C4 (team part) - precompute which home dates the team already plays on
     // C5 (team part) - precompute whether any game is within r_max of each home date
@@ -329,12 +341,12 @@ fn solve_inner(
     }
 
     // fill bottom block (n_oppo x n_oppo) with p
+    // right block stays zeros (already initialized)
     for i in 0..n_oppo {
         for j in 0..n_oppo {
             am[(n_home + i, j)] = p;
         }
     }
-    // right block stays zeros (already initialized)
 
     // run Hungarian algorithm (minimize)
     let indexes = kuhn_munkres(am.view(), false);
@@ -366,7 +378,6 @@ struct FastTPS {
     m: f64,
     p: f64,
     r_max: f64,
-    /// Flat penalty lookup: penalties_vec[d] = penalty for distance d.
     penalties_vec: Vec<i64>,
     max_penalty_key: usize,
 }
@@ -399,7 +410,7 @@ impl FastTPS {
             sf.insert(key, vals.into_iter().collect());
         }
 
-        // parse penalties dict to flat Vec
+        // parse penalties dict to flat Vec (penalties_vec[d] = penalty for distance d)
         let mut max_key: usize = 0;
         let mut pen_map: HashMap<usize, i64> = HashMap::new();
         for (k, v) in penalties.iter() {
@@ -426,11 +437,11 @@ impl FastTPS {
         })
     }
 
-    /// Solve transportation problem for given home team.
-    /// Modifies X in-place and returns total_cost.
+    /// Solves transportation problem for given home team.
+    /// Modifies X in-place and returns total cost.
     fn solve<'py>(
         &self,
-        py: Python<'py>,
+        _py: Python<'py>,
         x_py: &Bound<'py, PyArray2<f64>>,
         team_idx: usize,
     ) -> PyResult<f64> {
@@ -442,7 +453,17 @@ impl FastTPS {
             .sets_home
             .get(&team_idx)
             .expect("team_idx not in sets_home");
-        let opponents: Vec<usize> = (0..n).filter(|&t| t != team_idx).collect();
+        
+        /// Keep pre-marked blocked opponents out of the assignment problem.
+        /// This allows Python to mark row entries with LARGE_NBR (or larger) so
+        /// these pairs are ignored instead of being force-assigned.
+        let blocked_opponents: Vec<(usize, f64)> = (0..n)
+            .filter(|&t| t != team_idx && is_blocked_marker(x_view[(team_idx, t)]))
+            .map(|t| (t, x_view[(team_idx, t)]))
+            .collect();
+        let opponents: Vec<usize> = (0..n)
+            .filter(|&t| t != team_idx && !is_blocked_marker(x_view[(team_idx, t)]))
+            .collect();
 
         let (pick, total_cost) = solve_inner(
             &x_view,
@@ -463,6 +484,10 @@ impl FastTPS {
         // assign selection to X in-place: X[team_idx, opponents] = pick
         unsafe {
             let mut x_mut = x_py.as_array_mut();
+            // preserve pre-existing blocked markers exactly
+            for &(opp, marker) in &blocked_opponents {
+                *x_mut.uget_mut([team_idx, opp]) = marker;
+            }
             for (idx, &opp) in opponents.iter().enumerate() {
                 *x_mut.uget_mut([team_idx, opp]) = pick[idx];
             }
@@ -471,7 +496,7 @@ impl FastTPS {
         Ok(total_cost)
     }
 
-    /// Create cost matrix (exposed for construction phase method 2).
+    /// Creates cost matrix.
     fn create_cost_matrix<'py>(
         &self,
         py: Python<'py>,
